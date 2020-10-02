@@ -9,6 +9,9 @@ lazy val adminclient =
     .settings(commonSettings)
     .settings(
       libraryDependencies ++= Seq(
+        library.clients,
+        library.kafka,
+        library.scalatest % Test,
         library.munit           % Test,
         library.munitScalaCheck % Test,
       ),
@@ -22,9 +25,14 @@ lazy val library =
   new {
     object Version {
       val munit = "0.7.11"
+      val kafka = "2.6.0"
+      val scalatest = "3.2.0"
     }
+    val clients = "org.apache.kafka" % "kafka-clients" % Version.kafka
+    val kafka = "org.apache.kafka" %% "kafka" % Version.kafka
     val munit           = "org.scalameta" %% "munit"            % Version.munit
     val munitScalaCheck = "org.scalameta" %% "munit-scalacheck" % Version.munit
+    val scalatest = "org.scalatest" %% "scalatest" % Version.scalatest
   }
 
 // *****************************************************************************
@@ -45,6 +53,7 @@ lazy val commonSettings =
       "-encoding", "UTF-8",
       "-Ywarn-unused:imports",
     ),
-    testFrameworks += new TestFramework("munit.Framework"),
-    scalafmtOnCompile := true,
+   // testFrameworks += new TestFramework("munit.Framework"),
+    resolvers += "confluent" at "https://packages.confluent.io/maven/",
+      scalafmtOnCompile := true,
 )
