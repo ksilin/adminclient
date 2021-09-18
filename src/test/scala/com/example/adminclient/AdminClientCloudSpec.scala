@@ -19,8 +19,7 @@ package com.example.adminclient
 import java.util
 import java.util.Properties
 import java.util.concurrent.ExecutionException
-
-import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, DescribeClusterResult, ListTopicsResult}
+import org.apache.kafka.clients.admin.{AdminClient, CreatePartitionsResult, CreateTopicsResult, DescribeClusterResult, ListTopicsResult, NewPartitions, NewTopic}
 import org.apache.kafka.common.KafkaFuture
 import org.apache.kafka.common.errors.SaslAuthenticationException
 import org.scalatest.freespec.AnyFreeSpec
@@ -28,35 +27,41 @@ import org.scalatest.matchers.must.Matchers
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 
 class AdminClientCloudSpec extends AnyFreeSpec with Matchers with FutureConverter {
 
-  val endpoint = "pkc-lq8v7.eu-central-1.aws.confluent.cloud:9092"
-
-  val props = new Properties()
-  props.setProperty("ssl.endpoint.identification.algorithm", "https")
-  props.setProperty("sasl.mechanism", "PLAIN")
-  props.setProperty(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "20000")
-  props.setProperty(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, endpoint)
-  props.setProperty(AdminClientConfig.RETRY_BACKOFF_MS_CONFIG, "500")
-  props.setProperty(AdminClientConfig.SECURITY_PROTOCOL_CONFIG, "SASL_SSL")
+  val config: SpecConfig = SpecConfig()
+  val userKafkaConfigName = "userKafkaApiKey" //
+  val userCloudConfigName = "userCloudApiKey" //
+  val userUiConfigName = "userUi" //
+  val saConfigName = "serviceAccountKafkaApiKey"
 
   "cluster admin functions must work for cluster-level api-key" - {
 
-    // its for the cluster lkc-8yjzq
+    // ❯ ccloud kafka acl list --service-account 110947 --cluster lkc-8yjzq
+    //
+    //  ServiceAccountId | Permission | Operation | Resource |  Name   |  Type
+    //+------------------+------------+-----------+----------+---------+---------+
+    //  User:110947      | ALLOW      | READ      | GROUP    | acldemo | LITERAL
+    //  User:110947      | ALLOW      | READ      | TOPIC    | acldemo | LITERAL
+    //  User:110947      | ALLOW      | WRITE     | TOPIC    | acldemo | LITERAL
 
-    val api_key= "GTVUUTDLNRS2VFDC"
-    val secret  = "ftkrkMdns17iod1W+gu+K7FG14KP5RwMefLVgSfuhL6Wyby9D65ipX9ACLT1kXq4"
-    val saslString =
-      s"""org.apache.kafka.common.security.plain.PlainLoginModule required username="${api_key}" password="${secret}";""".stripMargin
-    props.setProperty("sasl.jaas.config", saslString)
+    // ❯ ccloud kafka acl create --allow --operation DESCRIBE --service-account 110947 --cluster-scope --cluster lkc-8yjzq
+    //
+    //  ServiceAccountId | Permission | Operation | Resource |     Name      |  Type
+    //+------------------+------------+-----------+----------+---------------+---------+
+    //  User:110947      | ALLOW      | DESCRIBE  | CLUSTER  | kafka-cluster | LITERAL
+
+    val clusterName = "copsTamAwsKsiTst"
+    val props: Properties = config.propertiesFor(userKafkaConfigName, clusterName)
     // !!! requires kafka dependency, otherwise, future resolution fails with a 'Timeout'
     val client: AdminClient = AdminClient.create(props)
 
     "must be able to list topics" in {
       val res: ListTopicsResult               = client.listTopics() // describeCluster()
       val getn: KafkaFuture[util.Set[String]] = res.names()
-      val getItDone                           = getn.get()
+      val getItDone: util.Set[String] = getn.get()
       println(getItDone)
     }
 
@@ -67,37 +72,80 @@ class AdminClientCloudSpec extends AnyFreeSpec with Matchers with FutureConverte
       val clusterId                  = Await.result(sf, 10.seconds)
       println(clusterId)
     }
+
+    val testTopicName = "adminClient_test"
+
+    "must be able to create a topic" in {
+      // TODO - delete the topic first
+      val topic = new NewTopic(testTopicName, 1, 3.shortValue())
+      val res: CreateTopicsResult               = client.createTopics(List(topic).asJava) // describeCluster()
+      val getn: KafkaFuture[Void] = res.all()
+      val getItDone: Void = getn.get()
+    }
+
+    "must be able to add partitions" in {
+      val partitionIncrease = NewPartitions.increaseTo(2)
+      val res: CreatePartitionsResult               = client.createPartitions(Map(testTopicName -> partitionIncrease).asJava) // describeCluster()
+      val getn: KafkaFuture[Void] = res.all()
+      val getItDone: Void = getn.get()
+    }
+
   }
 
   "cluster admin functions must not be available for cloud-level api-key" - {
 
-    // cloud scope
-    val api_key = "JRMQFLXLI75J6Q6X"
-    val secret  = "BuvdVykfqf0qeJMia25v1lRTdY1hUQRJPhZT4LlvkNoITenSqqYfqSlghSE5Rr6c"
-    val saslString =
-      s"""org.apache.kafka.common.security.plain.PlainLoginModule required username="${api_key}" password="${secret}";"""
-    props.setProperty("sasl.jaas.config", saslString)
+    val clusterName = "copsTamAwsKsiTst"
+    val props: Properties = config.propertiesFor(userCloudConfigName, clusterName)
     // !!! requires kafka dependency, otherwise, future resolution fails with a 'Timeout'
     val client: AdminClient = AdminClient.create(props)
 
-    "must be able to get cluster id" in {
+    "must not be able to authenticate to list topics" in {
+      val res: ListTopicsResult               = client.listTopics() // describeCluster()
+      val getn: KafkaFuture[util.Set[String]] = res.names()
+      val sf                           = toScalaFuture(getn)
+      val ex                         = intercept[ExecutionException](Await.result(sf, 10.seconds))
+      val cause                      = ex.getCause
+      cause mustBe a[SaslAuthenticationException]
+      cause.getMessage mustBe "Authentication failed"
+    }
+
+    "must not be able to authenticate to get cluster id" in {
       val res: DescribeClusterResult = client.describeCluster()
       val getn: KafkaFuture[String]  = res.clusterId()
       val sf                         = toScalaFuture(getn)
-      val ex                  = intercept[ExecutionException]{Await.result(sf, 10.seconds)}
-      val cause = ex.getCause
+      val ex                         = intercept[ExecutionException](Await.result(sf, 10.seconds))
+      val cause                      = ex.getCause
       cause mustBe a[SaslAuthenticationException]
-      cause.getMessage mustBe "Authentication failed: Invalid username or password"
+      cause.getMessage mustBe "Authentication failed"
+    }
+  }
+
+  "cluster admin functions must be available for cluster-level api-key for a service account" - {
+
+    val clusterName = "copsTamAwsKsiTst"
+    val props: Properties = config.propertiesFor(saConfigName, clusterName)
+    // !!! requires kafka dependency, otherwise, future resolution fails with a 'Timeout'
+    val client: AdminClient = AdminClient.create(props)
+
+    "must be able to list topics" in {
+      val res: ListTopicsResult               = client.listTopics() // describeCluster()
+      val getn: KafkaFuture[util.Set[String]] = res.names()
+      val getItDone                           = getn.get()
+      println(getItDone)
+    }
+
+    "must not be able to get cluster id" in {
+      val res: DescribeClusterResult = client.describeCluster()
+      val getn: KafkaFuture[String]  = res.clusterId()
+      val getItDone                           = getn.get()
+      println(getItDone)
     }
   }
 
   "cluster admin functions are not available with UI user/pw " - {
 
-    // user scope
-    val api_key = "konstantin.silin+copstam@confluent.io"
-    val secret  = "@pPp=@8q3q!Kj!7LMJ"
-    val saslString = s"""org.apache.kafka.common.security.plain.PlainLoginModule required username="${api_key}" password="${secret}";"""
-    props.setProperty("sasl.jaas.config", saslString)
+    val clusterName = "copsTamAwsKsiTst"
+    val props: Properties = config.propertiesFor(userUiConfigName, clusterName)
     // !!! requires kafka dependency, otherwise, future resolution fails with a 'Timeout'
     val client: AdminClient = AdminClient.create(props)
 
@@ -105,10 +153,10 @@ class AdminClientCloudSpec extends AnyFreeSpec with Matchers with FutureConverte
       val res: DescribeClusterResult = client.describeCluster()
       val getn: KafkaFuture[String]  = res.clusterId()
       val sf                         = toScalaFuture(getn)
-      val ex                  = intercept[ExecutionException]{Await.result(sf, 10.seconds)}
-      val cause = ex.getCause
+      val ex                         = intercept[ExecutionException](Await.result(sf, 10.seconds))
+      val cause                      = ex.getCause
       cause mustBe a[SaslAuthenticationException]
-      cause.getMessage mustBe "Authentication failed: Invalid username or password"
+      cause.getMessage mustBe "Authentication failed"
     }
 
   }

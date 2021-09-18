@@ -11,9 +11,8 @@ lazy val adminclient =
       libraryDependencies ++= Seq(
         library.clients,
         library.kafka,
+        library.pureConfig,
         library.scalatest % Test,
-        library.munit           % Test,
-        library.munitScalaCheck % Test,
       ),
     )
 
@@ -24,14 +23,12 @@ lazy val adminclient =
 lazy val library =
   new {
     object Version {
-      val munit = "0.7.11"
-      val kafka = "2.6.0"
+      val kafka = "2.8.0"
       val scalatest = "3.2.0"
     }
     val clients = "org.apache.kafka" % "kafka-clients" % Version.kafka
     val kafka = "org.apache.kafka" %% "kafka" % Version.kafka
-    val munit           = "org.scalameta" %% "munit"            % Version.munit
-    val munitScalaCheck = "org.scalameta" %% "munit-scalacheck" % Version.munit
+    val pureConfig = "com.github.pureconfig" %% "pureconfig" % "0.14.0"
     val scalatest = "org.scalatest" %% "scalatest" % Version.scalatest
   }
 
